@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "agentbase-stock": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://gw-<gateway>-<id>.agentbase-gateway.aiplatform.vngcloud.vn/stock",
+        "--transport",
+        "http-only",
+        "--header",
+        "Authorization: Bearer ${GATEWAY_TOKEN}"
+      ],
+      "env": {
+        "GATEWAY_TOKEN": "<dán token từ: python scripts/print_token.py>"
+      }
+    }
+  }
+}
