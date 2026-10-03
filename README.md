@@ -1,10 +1,10 @@
-# 🔌 MCP Gateway Client — gọi tool AgentBase từ agent chạy BÊN NGOÀI
+# 🔌 Bring Your Own Agent + MCP Gateway — agent chạy BÊN NGOÀI AgentBase gọi tool qua MCP Gateway
 
 > Sample client cho thấy **agent/app của chính bạn** (laptop, server riêng, cloud khác — *không* chạy trên AgentBase Runtime)
 > gọi tool qua **GreenNode MCP Gateway**: mọi lời gọi vẫn đi qua **xác thực → Policy Group → Outbound Auth → MCP server**,
 > nên bạn có governance (auth, policy, audit) của AgentBase cho tool dù agent nằm ở đâu.
 
-[![CI](https://github.com/GreenNode-Sample-AgentBase/greennode-agentbase-mcp-gateway-client/actions/workflows/ci.yml/badge.svg)](https://github.com/GreenNode-Sample-AgentBase/greennode-agentbase-mcp-gateway-client/actions/workflows/ci.yml)
+[![CI](https://github.com/GreenNode-Sample-AgentBase/greennode-agentbase-byo-agent-mcp-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/GreenNode-Sample-AgentBase/greennode-agentbase-byo-agent-mcp-gateway/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Vì sao repo này tồn tại?
