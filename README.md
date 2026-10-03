@@ -1,170 +1,170 @@
-# 🔌 Bring Your Own Agent + MCP Gateway — agent chạy BÊN NGOÀI AgentBase gọi tool qua MCP Gateway
+# Bring Your Own Agent + MCP Gateway — an agent running OUTSIDE AgentBase calls tools through MCP Gateway
 
-> Sample client cho thấy **agent/app của chính bạn** (laptop, server riêng, cloud khác — *không* chạy trên AgentBase Runtime)
-> gọi tool qua **GreenNode MCP Gateway**: mọi lời gọi vẫn đi qua **xác thực → Policy Group → Outbound Auth → MCP server**,
-> nên bạn có governance (auth, policy, audit) của AgentBase cho tool dù agent nằm ở đâu.
+> A sample client showing **your own agent/app** (laptop, your own server, another cloud — *not* running on AgentBase Runtime)
+> calling tools through **GreenNode MCP Gateway**. Every call still goes through **authentication → Policy Group → Outbound Auth → MCP server**,
+> so you get AgentBase governance (auth, policy, audit) for tools wherever the agent runs.
 
 [![CI](https://github.com/GreenNode-Samples/sample-byo-agent-mcp-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/GreenNode-Samples/sample-byo-agent-mcp-gateway/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Vì sao repo này tồn tại?
+## Why does this repo exist?
 
-Các sample khác ([`travel-buddy`](../sample-travel-buddy), [`mcp-stock-server`](../sample-mcp-stock-server))
-chạy *trên* AgentBase, nơi runtime được inject sẵn service account. Nhưng nhiều khách hàng đã có agent riêng
-(LangGraph, Claude Desktop, Cursor, ứng dụng nội bộ…) và chỉ muốn **dùng gateway làm cổng tool có kiểm soát**:
+The other samples ([`travel-buddy`](../sample-travel-buddy), [`mcp-stock-server`](../sample-mcp-stock-server))
+run *on* AgentBase, where the runtime has a service account injected automatically. But many customers already have their own agents
+(LangGraph, Claude Desktop, Cursor, internal applications, etc.) and only want to **use the gateway as a governed tool entry point**:
 
-- **Một cổng duy nhất** tới nhiều MCP server — agent không cầm API key của từng dịch vụ (connector lo Outbound Auth).
-- **Policy Group**: quyết định ai được gọi `<connector>__<tool>` nào — bất kể agent chạy ở đâu.
-- **Audit tập trung** tại gateway.
+- **A single entry point** to many MCP servers — the agent does not hold each service's API key (the connector handles Outbound Auth).
+- **Policy Group**: decides who may call which `<connector>__<tool>`, regardless of where the agent runs.
+- **Centralized audit** at the gateway.
 
-## 🏗 Kiến trúc
+## Architecture
 
-![Kiến trúc BYO agent + MCP Gateway](docs/architecture.svg)
+![BYO agent + MCP Gateway architecture](docs/architecture.svg)
 
 ```
- Agent của bạn (laptop / server / cloud khác)
+ Your agent (laptop / server / another cloud)
    ├─ LangGraph agent (src/agent.py)  ├─ CLI (src/list_tools.py)  └─ Claude Desktop / Cursor (mcp-remote)
         │  MCP streamable HTTP (JSON-RPC: tools/list, tools/call)
-        │  Authorization: Bearer <IAM token | JWT từ IdP của bạn>
+        │  Authorization: Bearer <IAM token | JWT from your IdP>
         ▼
  ┌──────────────────────────────────────────────────────────────┐
  │ MCP Gateway  https://gw-<gateway>-<id>.agentbase-gateway…/<connector>
- │  ① Inbound Auth  — IAM Permissions | JWT | (No authorization: chỉ dev)
- │  ② Policy Group  — first match wins; không rule khớp → 403
- │                    (tools/list bỏ qua policy, tools/call được kiểm tra)
- │  ③ Connector     — Outbound Auth (API Key / OAuth / none) do gateway giữ
+ │  ① Inbound Auth  — IAM Permissions | JWT | (No authorization: dev only)
+ │  ② Policy Group  — first match wins; no matching rule → 403
+ │                    (tools/list skips policy, tools/call is checked)
+ │  ③ Connector     — Outbound Auth (API Key / OAuth / none) held by the gateway
  └──────────────────────────────┬───────────────────────────────┘
                                 ▼
-                           MCP server (vd: connector `stock` của repo mcp-stock-server)
+                           MCP server (e.g. the `stock` connector from the mcp-stock-server repo)
 ```
 
-Lời gọi **LLM là đường riêng**: agent của bạn gọi LLM (GreenNode AI Platform hoặc bất kỳ LLM OpenAI-compatible nào) trực tiếp, không qua gateway.
+**LLM calls take a separate path**: your agent calls the LLM (GreenNode AI Platform or any OpenAI-compatible LLM) directly, not through the gateway.
 
-## Cấu trúc
+## Structure
 
-| File | Việc |
+| File | Purpose |
 |---|---|
-| `src/gateway_auth.py` | `get_iam_token()` (cache, thread-safe, margin 60s) · `auth_headers()` cho `GATEWAY_AUTH=iam\|jwt\|none` |
-| `src/list_tools.py` | CLI dùng SDK `mcp`: liệt kê tool, `--call` gọi 1 tool, giải thích lỗi 401/403/404 |
-| `src/agent.py` | Agent LangGraph (`create_react_agent`) nạp tool từ 1+ connector qua `langchain-mcp-adapters` |
-| `scripts/print_token.py` | In IAM token mới cho Claude Desktop / Cursor / curl |
-| `examples/` | Config `mcp-remote` cho Claude Desktop & Cursor |
-| `tests/` | pytest hermetic (không network) |
+| `src/gateway_auth.py` | `get_iam_token()` (cached, thread-safe, 60s margin) · `auth_headers()` for `GATEWAY_AUTH=iam\|jwt\|none` |
+| `src/list_tools.py` | CLI using the `mcp` SDK: lists tools, `--call` invokes one tool, explains 401/403/404 errors |
+| `src/agent.py` | LangGraph agent (`create_react_agent`) that loads tools from 1+ connectors via `langchain-mcp-adapters` |
+| `scripts/print_token.py` | Prints a fresh IAM token for Claude Desktop / Cursor / curl |
+| `examples/` | `mcp-remote` configs for Claude Desktop & Cursor |
+| `tests/` | Hermetic pytest suite (no network) |
 
-## Cài đặt từng bước
+## Step-by-step setup
 
-### 1. Cấu hình Inbound Auth trên gateway
+### 1. Configure Inbound Auth on the gateway
 
-Console → AgentBase → **MCP Gateway** → gateway của bạn → *Inbound Auth* (skill `agentbase-gateway` làm được qua CLI). Chọn **một**:
+Console → AgentBase → **MCP Gateway** → your gateway → *Inbound Auth* (the `agentbase-gateway` skill can do this via the CLI). Choose **one**:
 
-| Chế độ trên gateway | `GATEWAY_AUTH` | Bạn cần |
+| Mode on the gateway | `GATEWAY_AUTH` | What you need |
 |---|---|---|
-| **IAM Permissions** | `iam` (mặc định) | Tạo **IAM service account** (Console → IAM → Service accounts) → lấy `client_id` / `client_secret`. Code đổi sang Bearer token bằng client-credentials. |
-| **JWT** (mặc định của gateway) | `jwt` | Khai báo IdP của bạn (Okta, Auth0, Keycloak, Entra ID…) qua **Discovery URL** hoặc **JWKS**; chọn claim làm principal (mặc định `sub`). Code chỉ gửi JWT bạn đưa vào `GATEWAY_JWT` / `GATEWAY_JWT_FILE`. |
-| **No authorization** | `none` | Chỉ dùng dev — ai biết URL cũng gọi được. |
+| **IAM Permissions** | `iam` (default) | Create an **IAM service account** (Console → IAM → Service accounts) → obtain the `client_id` / `client_secret`. The code exchanges them for a Bearer token using the client-credentials flow. |
+| **JWT** (the gateway's default) | `jwt` | Register your IdP (Okta, Auth0, Keycloak, Entra ID, etc.) via the **Discovery URL** or **JWKS**; choose the claim to use as the principal (default `sub`). The code only sends the JWT you supply in `GATEWAY_JWT` / `GATEWAY_JWT_FILE`. |
+| **No authorization** | `none` | Dev only — anyone who knows the URL can call it. |
 
-> Ngoài AgentBase, `GREENNODE_CLIENT_ID` / `GREENNODE_CLIENT_SECRET` **không** được tự inject như trên Runtime — bạn tự tạo và quản lý.
+> Outside AgentBase, `GREENNODE_CLIENT_ID` / `GREENNODE_CLIENT_SECRET` are **not** injected automatically as they are on Runtime — you create and manage them yourself.
 
-### 2. Lấy URL connector
+### 2. Get the connector URL
 
-Trang chi tiết gateway → connector → copy endpoint dạng
-`https://gw-<gateway>-<id>.agentbase-gateway.aiplatform.vngcloud.vn/<connector>` (vd `/stock`).
+Gateway detail page → connector → copy the endpoint, which has the form
+`https://gw-<gateway>-<id>.agentbase-gateway.aiplatform.vngcloud.vn/<connector>` (e.g. `/stock`).
 
-### 3. Cho phép principal của bạn trong Policy Group
+### 3. Allow your principal in a Policy Group
 
-Gateway **từ chối mặc định**: chưa gắn Policy Group hoặc không rule nào khớp ⇒ `tools/call` trả `403` (`tools/list` thì luôn được phép).
-Principal: `iam:<định danh service account>` với IAM, hoặc giá trị claim đã cấu hình (vd `sub`) với JWT. Action có dạng `<connector>__<tool>`:
+The gateway **denies by default**: with no Policy Group attached, or no matching rule, `tools/call` returns `403` (`tools/list` is always allowed).
+Principal: `iam:<service account identifier>` with IAM, or the configured claim value (e.g. `sub`) with JWT. Actions have the form `<connector>__<tool>`:
 
 ```json
 {
   "effect": "allow",
-  "principal": "iam:<service-account-của-bạn>",
+  "principal": "iam:<your-service-account>",
   "actions": ["stock__stock_quote", "stock__top_gainers", "stock__valuation"],
-  "resources": ["gateway:<tên-gateway>"]
+  "resources": ["gateway:<gateway-name>"]
 }
 ```
 
-Xem skill `agentbase-policy`. Nếu chưa biết principal chính xác, gọi thử một tool — gateway sẽ từ chối (403) và audit ghi lại principal để bạn đối chiếu. *Verify cú pháp principal với phiên bản gateway của bạn.*
+See the `agentbase-policy` skill. If you do not know the exact principal, try calling a tool — the gateway will deny it (403) and the audit log records the principal so you can match it. *Verify the principal syntax against your gateway version.*
 
-### 4. Cài và cấu hình môi trường
+### 4. Install and configure the environment
 
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env     # điền MCP_GATEWAY_URL(S), GREENNODE_CLIENT_ID/SECRET (hoặc GATEWAY_JWT), LLM_API_KEY
+cp .env.example .env     # fill in MCP_GATEWAY_URL(S), GREENNODE_CLIENT_ID/SECRET (or GATEWAY_JWT), LLM_API_KEY
 set -a; source .env; set +a
 ```
 
-## Chạy
+## Run
 
-### A. Liệt kê / gọi tool (không cần LLM)
+### A. List / call tools (no LLM needed)
 
 ```bash
 python src/list_tools.py
 python src/list_tools.py --call stock__stock_quote --args '{"symbol":"VNM"}'
 ```
 
-Dùng đúng tên tool mà `tools/list` in ra (tiền tố connector tuỳ phiên bản gateway; *policy action luôn là `<connector>__<tool>`*).
+Use the exact tool names printed by `tools/list` (the connector prefix depends on the gateway version; *the policy action is always `<connector>__<tool>`*).
 
-### B. Agent LangGraph
+### B. LangGraph agent
 
 ```bash
-python src/agent.py "Cổ phiếu nào tăng mạnh nhất hôm nay và định giá của nó ra sao?"
+python src/agent.py "Which stock gained the most today, and how is it valued?"
 ```
 
-`MCP_GATEWAY_URLS` nhận nhiều connector (cách nhau dấu phẩy) → agent thấy tool của tất cả. LLM mặc định: GreenNode AI Platform
-(`https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1`, model `z-ai/glm-5.3-flash`); đổi `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` để dùng LLM OpenAI-compatible khác.
+`MCP_GATEWAY_URLS` accepts multiple connectors (comma-separated) → the agent sees the tools from all of them. Default LLM: GreenNode AI Platform
+(`https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1`, model `z-ai/glm-5.3-flash`); change `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` to use another OpenAI-compatible LLM.
 
 ### C. Claude Desktop / Cursor
 
 ```bash
 set -a; source .env; set +a
-python scripts/print_token.py     # dán vào env.GATEWAY_TOKEN trong examples/*.json
+python scripts/print_token.py     # paste into env.GATEWAY_TOKEN in examples/*.json
 ```
 
-Copy `examples/claude_desktop_config.json` hoặc `examples/cursor_mcp.json` vào config của client (chi tiết trong [examples/README.md](examples/README.md)).
-Token IAM hết hạn ~30 phút; dùng lâu dài nên chọn JWT từ IdP của bạn hoặc script refresh + `--header-file`.
+Copy `examples/claude_desktop_config.json` or `examples/cursor_mcp.json` into the client's config (details in [examples/README.md](examples/README.md)).
+IAM tokens expire after ~30 minutes; for long-term use, choose a JWT from your IdP or a refresh script + `--header-file`.
 
 ## Troubleshooting
 
-| Triệu chứng | Nguyên nhân | Cách xử lý |
+| Symptom | Cause | Resolution |
 |---|---|---|
-| `401 Unauthorized` | Inbound Auth từ chối: sai `GATEWAY_AUTH` so với gateway, token hết hạn, JWT sai issuer/audience/JWKS, sai client id/secret | Khớp chế độ; chạy lại để lấy token mới; kiểm tra cấu hình Discovery URL/JWKS |
-| `403 Forbidden` | Xác thực OK nhưng **Policy Group** không cho principal này gọi `<connector>__<tool>` (hoặc chưa gắn Policy Group) | Thêm rule allow đúng principal + action; nhớ first match wins |
-| `tools/list` được nhưng `tools/call` 403 | Đúng thiết kế: `tools/list` bỏ qua policy | Như dòng trên |
-| `404` / `Session terminated` | Sai đường dẫn connector trong URL | Copy lại endpoint từ trang chi tiết gateway (`…/<connector>`) |
-| Timeout / `All connection attempts failed` | Gateway **Private** chỉ truy cập được từ mạng riêng của bạn (VPN/VPC); hoặc chặn egress | Chạy client trong mạng được nối tới gateway, hoặc dùng gateway Public + Inbound Auth + IP allowlist |
-| `Thiếu GREENNODE_CLIENT_ID…` | Chưa đặt credential (không tự inject ngoài AgentBase) | Điền `.env`, `source` lại |
-| `5xx` | Lỗi connector / MCP server phía sau | Xem log runtime của MCP server |
+| `401 Unauthorized` | Inbound Auth rejected the request: `GATEWAY_AUTH` does not match the gateway, token expired, JWT has the wrong issuer/audience/JWKS, or wrong client id/secret | Match the mode; rerun to get a fresh token; check the Discovery URL/JWKS configuration |
+| `403 Forbidden` | Authentication succeeded but the **Policy Group** does not allow this principal to call `<connector>__<tool>` (or no Policy Group is attached) | Add an allow rule with the correct principal + action; remember that first match wins |
+| `tools/list` works but `tools/call` returns 403 | By design: `tools/list` skips policy | Same as the row above |
+| `404` / `Session terminated` | Wrong connector path in the URL | Re-copy the endpoint from the gateway detail page (`…/<connector>`) |
+| Timeout / `All connection attempts failed` | A **Private** gateway is reachable only from your private network (VPN/VPC), or egress is blocked | Run the client in a network connected to the gateway, or use a Public gateway + Inbound Auth + IP allowlist |
+| `Missing GREENNODE_CLIENT_ID…` | Credentials not set (they are not injected automatically outside AgentBase) | Fill in `.env` and `source` it again |
+| `5xx` | Error in the connector / the MCP server behind it | Check the MCP server's runtime logs |
 
-## Bảo mật
+## Security
 
-- **Không commit secret**: `.env` đã nằm trong `.gitignore`; `client_secret`, JWT, `GATEWAY_TOKEN` không đưa vào config đẩy lên git.
-- **Xoay (rotate)** client secret định kỳ; thu hồi service account khi không dùng.
-- **Least-privilege**: mỗi agent/service account một principal riêng, policy chỉ liệt kê đúng các action cần thiết — tránh `"*"`.
-- Không dùng *No authorization* ngoài môi trường dev; với gateway Public nên thêm giới hạn nguồn truy cập.
-- Cấu hình client desktop: ưu tiên `--header-file` để token không hiện trong danh sách tiến trình.
+- **Do not commit secrets**: `.env` is already in `.gitignore`; keep `client_secret`, JWTs, and `GATEWAY_TOKEN` out of configs pushed to git.
+- **Rotate** the client secret regularly; revoke the service account when it is no longer used.
+- **Least privilege**: one principal per agent/service account, and policies that list only the actions required — avoid `"*"`.
+- Do not use *No authorization* outside dev environments; for a Public gateway, also restrict the access source.
+- Desktop client configuration: prefer `--header-file` so the token does not appear in the process list.
 
 ## Test
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest tests/ -q   # hermetic — không gọi network thật
+python -m pytest tests/ -q   # hermetic — makes no real network calls
 ```
 
-Bao gồm: cache & margin 60s của IAM token, `auth_headers` theo từng chế độ, JWT từ file, thiếu credential, parse tham số CLI,
-và ánh xạ lỗi 401/403/404/mạng (kể cả khi SDK bọc trong `ExceptionGroup`).
+Coverage: IAM token caching and the 60s margin, `auth_headers` for each mode, JWT from a file, missing credentials, CLI argument parsing,
+and mapping of 401/403/404/network errors (including when the SDK wraps them in an `ExceptionGroup`).
 
-## Kết hợp với sample khác
+## Combine with another sample
 
-Dùng làm đích gọi: [`sample-mcp-stock-server`](../sample-mcp-stock-server) — đăng ký connector `stock`
-vào gateway, cho phép các action `stock__<tool>` ở Policy Group rồi trỏ `MCP_GATEWAY_URL` vào `…/stock`.
+Use it as the call target: [`sample-mcp-stock-server`](../sample-mcp-stock-server) — register the `stock` connector
+in the gateway, allow the `stock__<tool>` actions in a Policy Group, then point `MCP_GATEWAY_URL` at `…/stock`.
 
-## Tài nguyên liên quan
+## Related resources
 
 - Skill `agentbase-gateway` — gateway, connector, Inbound/Outbound Auth
-- Skill `agentbase-policy` — viết policy `<connector>__<tool>`
-- Skill `agentbase-llm` — API key LLM AI Platform
+- Skill `agentbase-policy` — writing `<connector>__<tool>` policies
+- Skill `agentbase-llm` — AI Platform LLM API key
 
 ## License
 

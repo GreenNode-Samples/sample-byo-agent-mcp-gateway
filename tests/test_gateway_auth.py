@@ -50,9 +50,9 @@ def test_refresh_inside_60s_margin(monkeypatch, creds):
     t1, t2 = make_jwt(clock["t"] + 1800), make_jwt(clock["t"] + 3600)
     calls = patch_post(monkeypatch, [t1, t2])
     assert gateway_auth.get_iam_token() == t1
-    clock["t"] += 1800 - 61  # còn 61s -> vẫn dùng cache
+    clock["t"] += 1800 - 61  # 61s left -> still served from cache
     assert gateway_auth.get_iam_token() == t1
-    clock["t"] += 2  # còn 59s -> làm mới
+    clock["t"] += 2  # 59s left -> refreshed
     assert gateway_auth.get_iam_token() == t2
     assert len(calls) == 2
 
@@ -99,7 +99,7 @@ def test_auth_headers_jwt_from_file(monkeypatch, tmp_path):
     monkeypatch.setenv("GATEWAY_AUTH", "jwt")
     monkeypatch.setenv("GATEWAY_JWT_FILE", str(f))
     assert gateway_auth.auth_headers() == {"Authorization": "Bearer file.jwt.token"}
-    f.write_text("rotated\n")  # đọc lại mỗi lần
+    f.write_text("rotated\n")  # re-read on every call
     assert gateway_auth.auth_headers() == {"Authorization": "Bearer rotated"}
 
 

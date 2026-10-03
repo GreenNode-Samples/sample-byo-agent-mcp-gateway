@@ -1,13 +1,13 @@
-"""Lấy credential để gọi MCP Gateway từ BÊN NGOÀI AgentBase.
+"""Obtain credentials for calling the MCP Gateway from OUTSIDE AgentBase.
 
-Chế độ (env `GATEWAY_AUTH`) phải khớp với **Inbound Auth** cấu hình trên gateway:
+The mode (env `GATEWAY_AUTH`) must match the **Inbound Auth** configured on the gateway:
 
-- ``iam`` (mặc định): Bearer token IAM lấy bằng client-credentials của một
-  *service account* GreenNode (`GREENNODE_CLIENT_ID` / `GREENNODE_CLIENT_SECRET`).
-- ``jwt``: Bearer JWT do IdP của BẠN cấp (Okta, Auth0, Keycloak, Entra ID...).
-  Đọc từ env `GATEWAY_JWT` hoặc file `GATEWAY_JWT_FILE` (đọc lại mỗi lần gọi,
-  nên có thể dùng với script refresh token chạy nền).
-- ``none``: không gửi header (chỉ dùng cho dev khi gateway chọn *No authorization*).
+- ``iam`` (default): Bearer IAM token obtained via the client-credentials grant of a GreenNode
+  *service account* (`GREENNODE_CLIENT_ID` / `GREENNODE_CLIENT_SECRET`).
+- ``jwt``: Bearer JWT issued by YOUR IdP (Okta, Auth0, Keycloak, Entra ID...).
+  Read from env `GATEWAY_JWT` or file `GATEWAY_JWT_FILE` (re-read on every call,
+  so it works with a background token-refresh script).
+- ``none``: no header is sent (dev only, when the gateway uses *No authorization*).
 """
 
 from __future__ import annotations
@@ -21,19 +21,19 @@ import time
 import httpx
 
 IAM_TOKEN_URL = "https://iam.api.vngcloud.vn/accounts-api/v2/auth/token"
-EXPIRY_MARGIN_SECONDS = 60  # làm mới token sớm 60s trước khi hết hạn
-DEFAULT_TTL_SECONDS = 25 * 60  # dùng khi token không có claim `exp`
+EXPIRY_MARGIN_SECONDS = 60  # refresh the token 60s before it expires
+DEFAULT_TTL_SECONDS = 25 * 60  # used when the token has no `exp` claim
 
 _lock = threading.Lock()
 _cache: dict = {"token": None, "exp": 0.0}
 
 
 class AuthConfigError(RuntimeError):
-    """Cấu hình credential thiếu hoặc sai."""
+    """Credential configuration is missing or invalid."""
 
 
 def _jwt_exp(token: str) -> float:
-    """Đọc claim `exp` của JWT (không verify chữ ký). 0.0 nếu không đọc được."""
+    """Read the JWT `exp` claim (signature is not verified). Returns 0.0 if it cannot be read."""
     try:
         part = token.split(".")[1]
         part += "=" * (-len(part) % 4)
@@ -43,7 +43,7 @@ def _jwt_exp(token: str) -> float:
 
 
 def get_iam_token(force: bool = False) -> str:
-    """IAM access token (client-credentials), cache + thread-safe, margin 60s."""
+    """IAM access token (client-credentials), cached and thread-safe, with a 60s margin."""
     with _lock:
         now = time.time()
         if not force and _cache["token"] and now < _cache["exp"] - EXPIRY_MARGIN_SECONDS:
@@ -53,8 +53,8 @@ def get_iam_token(force: bool = False) -> str:
         client_secret = os.environ.get("GREENNODE_CLIENT_SECRET")
         if not client_id or not client_secret:
             raise AuthConfigError(
-                "Thiếu GREENNODE_CLIENT_ID / GREENNODE_CLIENT_SECRET. Ngoài AgentBase các biến này "
-                "KHÔNG được tự inject — hãy tạo IAM service account và đặt vào .env (xem README)."
+                "Missing GREENNODE_CLIENT_ID / GREENNODE_CLIENT_SECRET. Outside AgentBase these variables "
+                "are NOT injected automatically — create an IAM service account and put them in .env (see README)."
             )
         resp = httpx.post(
             IAM_TOKEN_URL,
@@ -76,7 +76,7 @@ def clear_cache() -> None:
 
 
 def get_jwt() -> str:
-    """JWT từ IdP của bạn: env GATEWAY_JWT hoặc file GATEWAY_JWT_FILE."""
+    """JWT from your IdP: env GATEWAY_JWT or file GATEWAY_JWT_FILE."""
     token = os.environ.get("GATEWAY_JWT", "").strip()
     path = os.environ.get("GATEWAY_JWT_FILE", "").strip()
     if not token and path:
@@ -84,21 +84,21 @@ def get_jwt() -> str:
             with open(os.path.expanduser(path), encoding="utf-8") as f:
                 token = f.read().strip()
         except OSError as e:
-            raise AuthConfigError(f"Không đọc được GATEWAY_JWT_FILE={path}: {e}") from e
+            raise AuthConfigError(f"Could not read GATEWAY_JWT_FILE={path}: {e}") from e
     if not token:
-        raise AuthConfigError("GATEWAY_AUTH=jwt nhưng thiếu GATEWAY_JWT hoặc GATEWAY_JWT_FILE.")
+        raise AuthConfigError("GATEWAY_AUTH=jwt but GATEWAY_JWT or GATEWAY_JWT_FILE is missing.")
     return token
 
 
 def auth_mode() -> str:
     mode = os.environ.get("GATEWAY_AUTH", "iam").strip().lower()
     if mode not in ("iam", "jwt", "none"):
-        raise AuthConfigError(f"GATEWAY_AUTH='{mode}' không hợp lệ (chọn: iam | jwt | none).")
+        raise AuthConfigError(f"GATEWAY_AUTH='{mode}' is invalid (choose: iam | jwt | none).")
     return mode
 
 
 def auth_headers() -> dict[str, str]:
-    """Header Authorization theo GATEWAY_AUTH (iam | jwt | none)."""
+    """Authorization header according to GATEWAY_AUTH (iam | jwt | none)."""
     mode = auth_mode()
     if mode == "none":
         return {}

@@ -1,9 +1,9 @@
-"""Agent LangGraph tối giản: LLM GreenNode AIP + tools từ MCP Gateway.
+"""Minimal LangGraph agent: GreenNode AIP LLM + tools from the MCP Gateway.
 
-    python src/agent.py "Giá cổ phiếu VNM hôm nay?"
+    python src/agent.py "What is the VNM stock price today?"
 
-Env: MCP_GATEWAY_URLS (nhiều URL connector, cách nhau dấu phẩy), GATEWAY_AUTH..., LLM_API_KEY,
-LLM_MODEL, LLM_BASE_URL. Xem .env.example.
+Env: MCP_GATEWAY_URLS (multiple connector URLs, comma-separated), GATEWAY_AUTH..., LLM_API_KEY,
+LLM_MODEL, LLM_BASE_URL. See .env.example.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ try:
     from langchain_openai import ChatOpenAI
     from langgraph.prebuilt import create_react_agent
 except ImportError as e:  # pragma: no cover
-    sys.exit(f"Thiếu dependency ({e}). Chạy: pip install -r requirements.txt")
+    sys.exit(f"Missing dependency ({e}). Run: pip install -r requirements.txt")
 
 DEFAULT_LLM_BASE_URL = "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
-SYSTEM_PROMPT = "Bạn là trợ lý hữu ích. Dùng tools khi cần dữ liệu thật và trả lời bằng tiếng Việt."
+SYSTEM_PROMPT = "You are a helpful assistant. Use tools when you need real data. Answer in the user's language."
 
 
 def gateway_urls() -> list[str]:
@@ -32,7 +32,7 @@ def gateway_urls() -> list[str]:
 
 
 def build_servers(urls: list[str], headers: dict[str, str]) -> dict:
-    """Mỗi URL connector = một 'server' MCP; tên tool lấy từ gateway."""
+    """Each connector URL = one MCP 'server'; tool names come from the gateway."""
     return {
         f"gw{i}": {"transport": "streamable_http", "url": url, "headers": headers}
         for i, url in enumerate(urls)
@@ -42,11 +42,11 @@ def build_servers(urls: list[str], headers: dict[str, str]) -> dict:
 async def main(question: str) -> None:
     urls = gateway_urls()
     if not urls:
-        sys.exit("Thiếu MCP_GATEWAY_URLS (URL connector trên gateway, cách nhau dấu phẩy).")
+        sys.exit("Missing MCP_GATEWAY_URLS (connector URLs on the gateway, comma-separated).")
 
     client = MultiServerMCPClient(build_servers(urls, auth_headers()))
     tools = await client.get_tools()  # tools/list qua gateway
-    print(f"Đã nạp {len(tools)} tool: {', '.join(t.name for t in tools)}\n")
+    print(f"Loaded {len(tools)} tool(s): {', '.join(t.name for t in tools)}\n")
 
     llm = ChatOpenAI(
         model=os.environ.get("LLM_MODEL", "z-ai/glm-5.3-flash"),
@@ -60,5 +60,5 @@ async def main(question: str) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        sys.exit('Cách dùng: python src/agent.py "câu hỏi của bạn"')
+        sys.exit('Usage: python src/agent.py "your question"')
     asyncio.run(main(" ".join(sys.argv[1:])))

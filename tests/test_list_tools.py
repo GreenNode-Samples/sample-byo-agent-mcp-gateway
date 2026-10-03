@@ -55,11 +55,11 @@ def test_main_maps_errors(monkeypatch, capsys, code, needle):
 
 def test_main_config_error(monkeypatch, capsys):
     async def boom(*a, **k):
-        raise list_tools.AuthConfigError("thiếu credential")
+        raise list_tools.AuthConfigError("missing credential")
 
     monkeypatch.setattr(list_tools, "run", boom)
     assert list_tools.main(["--url", "https://gw/x"]) == 1
-    assert "thiếu credential" in capsys.readouterr().err
+    assert "missing credential" in capsys.readouterr().err
 
 
 def test_mcp_session_terminated_maps_to_404():

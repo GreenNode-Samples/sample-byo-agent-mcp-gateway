@@ -1,9 +1,9 @@
-"""In ra IAM token mới (stdout) để dùng cho Claude Desktop / Cursor / curl.
+"""Print a fresh IAM token (stdout) for use with Claude Desktop / Cursor / curl.
 
     set -a; source .env; set +a
     export GATEWAY_TOKEN=$(python scripts/print_token.py)
 
-Token IAM hết hạn sau ~30 phút — chạy lại khi cần.
+IAM tokens expire after ~30 minutes — rerun when needed.
 """
 
 import os
@@ -16,4 +16,4 @@ if __name__ == "__main__":
     try:
         print(get_iam_token(force=True))
     except AuthConfigError as e:
-        sys.exit(f"Lỗi: {e}")
+        sys.exit(f"Error: {e}")

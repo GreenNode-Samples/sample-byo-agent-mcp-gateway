@@ -12,7 +12,7 @@
         "Authorization: Bearer ${GATEWAY_TOKEN}"
       ],
       "env": {
-        "GATEWAY_TOKEN": "<dán token từ: python scripts/print_token.py>"
+        "GATEWAY_TOKEN": "<paste token from: python scripts/print_token.py>"
       }
     }
   }

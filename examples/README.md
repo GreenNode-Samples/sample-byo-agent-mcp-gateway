@@ -1,17 +1,17 @@
-# Cấu hình client MCP desktop
+# MCP desktop client configuration
 
-- `claude_desktop_config.json` → gộp vào `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
-- `cursor_mcp.json` → `~/.cursor/mcp.json` (hoặc `.cursor/mcp.json` trong project).
+- `claude_desktop_config.json` → merge into `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
+- `cursor_mcp.json` → `~/.cursor/mcp.json` (or `.cursor/mcp.json` in your project).
 
-Cả hai dùng [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) làm cầu nối stdio → streamable HTTP, gắn header
-`Authorization: Bearer ${GATEWAY_TOKEN}` (biến `GATEWAY_TOKEN` khai báo trong khối `env`; cú pháp `--header "Name: value"`
-theo README của mcp-remote).
+Both use [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) as a stdio → streamable HTTP bridge, attaching the header
+`Authorization: Bearer ${GATEWAY_TOKEN}` (the `GATEWAY_TOKEN` variable is declared in the `env` block; the `--header "Name: value"` syntax
+follows the mcp-remote README).
 
-> **Token IAM hết hạn sau ~30 phút.** Với mục đích thử nhanh: chạy `python scripts/print_token.py`, dán vào `env.GATEWAY_TOKEN`,
-> restart client. Dùng lâu dài nên chọn một trong hai:
-> 1. Cấu hình gateway **Inbound Auth = JWT** và dùng JWT từ IdP của bạn (token dài hạn / có refresh);
-> 2. Chạy script refresh (cron/launchd) ghi token ra file, rồi dùng `--header-file /path/headers.txt`
->    của mcp-remote (mỗi dòng `Authorization: Bearer <token>`) — token không lộ trong process list.
+> **IAM tokens expire after ~30 minutes.** For a quick trial: run `python scripts/print_token.py`, paste the output into `env.GATEWAY_TOKEN`,
+> and restart the client. For long-term use, choose one of the following:
+> 1. Configure the gateway with **Inbound Auth = JWT** and use a JWT from your IdP (long-lived token / with refresh);
+> 2. Run a refresh script (cron/launchd) that writes the token to a file, then use mcp-remote's `--header-file /path/headers.txt`
+>    (each line `Authorization: Bearer <token>`) — the token does not appear in the process list.
 >
-> Không commit file đã điền token. Flag `--header` / `--header-file` / `--transport http-only` đã đối chiếu với README mcp-remote 0.14.3;
-> nếu client của bạn không nội suy `${...}` trong args, đặt cả giá trị vào một biến env và dùng `Authorization:${AUTH_HEADER}` (không có khoảng trắng sau dấu `:`).
+> Do not commit files that contain a filled-in token. The `--header` / `--header-file` / `--transport http-only` flags were checked against the mcp-remote 0.14.3 README;
+> if your client does not interpolate `${...}` in args, put the whole value in an env variable and use `Authorization:${AUTH_HEADER}` (no space after the `:`).

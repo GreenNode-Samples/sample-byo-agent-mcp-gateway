@@ -19,5 +19,5 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt pytest
 
-      - name: Pytest (hermetic — không gọi network thật)
+      - name: Pytest (hermetic — no real network calls)
         run: python -m pytest tests/ -q
