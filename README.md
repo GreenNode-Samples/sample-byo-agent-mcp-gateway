@@ -4,12 +4,12 @@
 > gọi tool qua **GreenNode MCP Gateway**: mọi lời gọi vẫn đi qua **xác thực → Policy Group → Outbound Auth → MCP server**,
 > nên bạn có governance (auth, policy, audit) của AgentBase cho tool dù agent nằm ở đâu.
 
-[![CI](https://github.com/GreenNode-Samples/greennode-agentbase-sample-byo-agent-mcp-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/GreenNode-Samples/greennode-agentbase-sample-byo-agent-mcp-gateway/actions/workflows/ci.yml)
+[![CI](https://github.com/GreenNode-Samples/sample-byo-agent-mcp-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/GreenNode-Samples/sample-byo-agent-mcp-gateway/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Vì sao repo này tồn tại?
 
-Các sample khác ([`travel-buddy`](../greennode-agentbase-sample-travel-buddy), [`mcp-stock-server`](../greennode-agentbase-sample-mcp-stock-server))
+Các sample khác ([`travel-buddy`](../sample-travel-buddy), [`mcp-stock-server`](../sample-mcp-stock-server))
 chạy *trên* AgentBase, nơi runtime được inject sẵn service account. Nhưng nhiều khách hàng đã có agent riêng
 (LangGraph, Claude Desktop, Cursor, ứng dụng nội bộ…) và chỉ muốn **dùng gateway làm cổng tool có kiểm soát**:
 
@@ -155,7 +155,7 @@ và ánh xạ lỗi 401/403/404/mạng (kể cả khi SDK bọc trong `Exception
 
 ## Kết hợp với sample khác
 
-Dùng làm đích gọi: [`greennode-agentbase-sample-mcp-stock-server`](../greennode-agentbase-sample-mcp-stock-server) — đăng ký connector `stock`
+Dùng làm đích gọi: [`sample-mcp-stock-server`](../sample-mcp-stock-server) — đăng ký connector `stock`
 vào gateway, cho phép các action `stock__<tool>` ở Policy Group rồi trỏ `MCP_GATEWAY_URL` vào `…/stock`.
 
 ## Tài nguyên liên quan
