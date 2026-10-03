@@ -19,6 +19,8 @@ chạy *trên* AgentBase, nơi runtime được inject sẵn service account. Nh
 
 ## 🏗 Kiến trúc
 
+![Kiến trúc BYO agent + MCP Gateway](docs/architecture.svg)
+
 ```
  Agent của bạn (laptop / server / cloud khác)
    ├─ LangGraph agent (src/agent.py)  ├─ CLI (src/list_tools.py)  └─ Claude Desktop / Cursor (mcp-remote)
