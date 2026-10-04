@@ -4,15 +4,15 @@
       "command": "npx",
       "args": [
         "-y",
-        "mcp-remote",
+        "mcp-remote@0.14.3",
         "https://gw-<gateway>-<id>.agentbase-gateway.aiplatform.vngcloud.vn/stock",
         "--transport",
         "http-only",
         "--header",
-        "Authorization: Bearer ${GATEWAY_TOKEN}"
+        "Authorization:${AUTH_HEADER}"
       ],
       "env": {
-        "GATEWAY_TOKEN": "<paste token from: python scripts/print_token.py>"
+        "AUTH_HEADER": "Bearer <paste token from: python scripts/print_token.py>"
       }
     }
   }
