@@ -1,9 +1,12 @@
 """CLI: list / call tools through the GreenNode AgentBase MCP Gateway.
 
     python src/list_tools.py                              # tools/list
-    python src/list_tools.py --call stock_quote --args '{"symbol":"VNM"}'
+    python src/list_tools.py --call stock__stock_quote --args '{"symbol":"VNM"}'
 
 Tool names are the FULL names exactly as the gateway returns them in tools/list (see the README on connector prefixes).
+
+Exit codes: 0 = success, 1 = configuration, authentication, network or gateway error,
+2 = the tool failed or does not exist (also used by argparse for invalid usage).
 """
 
 from __future__ import annotations
@@ -16,57 +19,15 @@ import sys
 
 import httpx
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gateway_auth import AuthConfigError, auth_headers  # noqa: E402
+from gateway_auth import GatewayAuth, auth_headers, validate_auth_config  # noqa: E402
+from gateway_errors import check_http_url, describe_failure, find_http_status  # noqa: E402
 
-HTTP_HINTS = {
-    401: (
-        "401 Unauthorized — the gateway's Inbound Auth rejected the credential. Check that GATEWAY_AUTH "
-        "matches the mode configured on the gateway (IAM Permissions or JWT); that the token has not expired; "
-        "and, for JWT, that the issuer/audience/JWKS match the gateway configuration."
-    ),
-    403: (
-        "403 Forbidden — authentication succeeded, but the Policy Group denies this principal from calling "
-        "this tool (first match wins; no matching rule => 403). Add an allow rule for your principal "
-        "(iam:<service-account> or the configured JWT claim) with action '<connector>__<tool>'. "
-        "Note: tools/list is not blocked by policy, only tools/call."
-    ),
-    404: "404 Not Found — wrong connector path in MCP_GATEWAY_URL (…/<connector>). Re-copy it from the gateway detail page.",
-}
-
-
-def describe_http_error(status: int) -> str:
-    if status in HTTP_HINTS:
-        return HTTP_HINTS[status]
-    if status >= 500:
-        return f"{status} — gateway/MCP server error. Retry later; if it persists, check the connector/runtime logs."
-    return f"HTTP {status} — unexpected response from the gateway."
-
-
-def _walk(exc: BaseException):
-    """Walk an exception, including ExceptionGroup (anyio TaskGroup) members and __cause__."""
-    yield exc
-    for sub in getattr(exc, "exceptions", ()):
-        yield from _walk(sub)
-    if exc.__cause__ is not None:
-        yield from _walk(exc.__cause__)
-
-
-def find_http_status(exc: BaseException) -> int | None:
-    """HTTP status that caused the error. The `mcp` SDK reports a 404 as McpError 'Session terminated'."""
-    for e in _walk(exc):
-        if isinstance(e, httpx.HTTPStatusError):
-            return e.response.status_code
-        if isinstance(e, McpError) and "session terminated" in str(e).lower():
-            return 404
-    return None
-
-
-def find_network_error(exc: BaseException) -> BaseException | None:
-    return next((e for e in _walk(exc) if isinstance(e, (httpx.ConnectError, httpx.TimeoutException))), None)
+EXIT_OK, EXIT_ERROR, EXIT_TOOL_FAILED = 0, 1, 2
+HTTP_TIMEOUT = httpx.Timeout(30.0, read=120.0)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -87,45 +48,51 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return ns
 
 
-async def run(url: str, call: str | None, arguments: dict) -> None:
-    async with streamablehttp_client(url, headers=auth_headers()) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            if call:
+async def run(url: str, call: str | None, arguments: dict) -> int:
+    """List tools, or call one. Returns the process exit code (never calls `sys.exit` inside the async context)."""
+    auth_headers()  # fail fast, with a clean error, if the credential cannot be obtained
+    async with (
+        httpx.AsyncClient(auth=GatewayAuth(), timeout=HTTP_TIMEOUT, follow_redirects=True) as http_client,
+        streamable_http_client(url, http_client=http_client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        if call:
+            try:
                 result = await session.call_tool(call, arguments)
-                for item in result.content:
-                    print(getattr(item, "text", item))
-                if result.isError:
-                    print("\n[tool returned isError=true]", file=sys.stderr)
-                    sys.exit(2)
-                return
-            tools = (await session.list_tools()).tools
-            print(f"{len(tools)} tool(s) at {url}\n")
-            for t in tools:
-                desc = (t.description or "").strip().splitlines()
-                print(f"- {t.name}: {desc[0] if desc else ''}")
+            except McpError as e:
+                if find_http_status(e) is not None:  # transport problem, reported by main()
+                    raise
+                print(f"Error: tool '{call}' failed: {e.error.message}", file=sys.stderr)
+                return EXIT_TOOL_FAILED
+            for item in result.content:
+                print(getattr(item, "text", item))
+            if result.isError:
+                print(f"\n[tool '{call}' returned isError=true]", file=sys.stderr)
+                return EXIT_TOOL_FAILED
+            return EXIT_OK
+        tools = (await session.list_tools()).tools
+        print(f"{len(tools)} tool(s) at {url}\n")
+        for t in tools:
+            desc = (t.description or "").strip().splitlines()
+            print(f"- {t.name}: {desc[0] if desc else ''}")
+        return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
     ns = parse_args(argv)
     try:
-        asyncio.run(run(ns.url, ns.call, ns.arguments))
-    except AuthConfigError as e:
-        print(f"Configuration error: {e}", file=sys.stderr)
-        return 1
-    except SystemExit:
+        check_http_url("MCP_GATEWAY_URL / --url", ns.url)
+        validate_auth_config()
+        return asyncio.run(run(ns.url, ns.call, ns.arguments))
+    except (KeyboardInterrupt, SystemExit):
         raise
-    except BaseException as e:  # noqa: BLE001
-        status = find_http_status(e)
-        if status is not None:
-            print(f"Error: {describe_http_error(status)}", file=sys.stderr)
-        elif (net := find_network_error(e)) is not None:
-            print(f"Network error: {net}. Check the URL; a Private gateway is only reachable from your private network.",
-                  file=sys.stderr)
-        else:
+    except BaseException as e:  # includes the ExceptionGroup raised by the anyio TaskGroup
+        message = describe_failure(e)
+        if message is None:
             raise
-        return 1
-    return 0
+        print(message, file=sys.stderr)
+        return EXIT_ERROR
 
 
 if __name__ == "__main__":

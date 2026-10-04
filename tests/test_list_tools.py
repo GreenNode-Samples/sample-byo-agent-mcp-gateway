@@ -1,7 +1,10 @@
 import httpx
 import pytest
 
+import gateway_auth
 import list_tools
+
+TOOL_ARGS = ["--args", '{"symbol":"VNM"}']
 
 
 def test_parse_args_defaults_to_env(monkeypatch):
@@ -25,55 +28,68 @@ def test_parse_args_errors(argv):
         list_tools.parse_args(argv)
 
 
-def test_http_error_messages():
-    assert "Inbound Auth" in list_tools.describe_http_error(401)
-    assert "Policy Group" in list_tools.describe_http_error(403)
-    assert "connector" in list_tools.describe_http_error(404)
-    assert "gateway" in list_tools.describe_http_error(502)
+def test_list_tools(stub, capsys):
+    assert list_tools.main([]) == 0
+    out = capsys.readouterr().out
+    assert "4 tool(s)" in out and "- stock_quote: Latest price of a stock." in out
 
 
-def _status_error(code):
-    req = httpx.Request("POST", "https://gw/x")
-    return httpx.HTTPStatusError("boom", request=req, response=httpx.Response(code, request=req))
+def test_call_tool(stub, capsys):
+    assert list_tools.main(["--call", "stock_quote", *TOOL_ARGS]) == 0
+    assert '"price": 61000' in capsys.readouterr().out
 
 
-def test_find_status_direct_nested_and_group():
-    assert list_tools.find_http_status(_status_error(403)) == 403
-    assert list_tools.find_http_status(ExceptionGroup("g", [ValueError(), ExceptionGroup("h", [_status_error(401)])])) == 401
-    assert list_tools.find_http_status(ValueError("x")) is None
+def test_failing_tool_exits_2_without_traceback(stub, capsys):
+    assert list_tools.main(["--call", "fail_tool", *TOOL_ARGS]) == 2
+    captured = capsys.readouterr()
+    assert "upstream broke" in captured.out
+    assert "isError=true" in captured.err and "Traceback" not in captured.err
 
 
-@pytest.mark.parametrize("code,needle", [(401, "Inbound Auth"), (403, "Policy Group")])
-def test_main_maps_errors(monkeypatch, capsys, code, needle):
-    async def boom(*a, **k):
-        raise ExceptionGroup("unhandled errors in a TaskGroup", [_status_error(code)])
+def test_unknown_tool_exits_2_without_traceback(stub, capsys):
+    assert list_tools.main(["--call", "no_such_tool"]) == 2
+    captured = capsys.readouterr()
+    assert "no_such_tool" in captured.out + captured.err and "Traceback" not in captured.err
 
-    monkeypatch.setattr(list_tools, "run", boom)
-    assert list_tools.main(["--url", "https://gw/x"]) == 1
+
+def test_policy_denied_tool_exits_1_with_the_policy_hint(stub, capsys):
+    assert list_tools.main(["--call", "denied_tool", *TOOL_ARGS]) == 1
+    assert "Policy Group" in capsys.readouterr().err
+
+
+def test_rejected_credential_exits_1_with_the_inbound_auth_hint(stub, capsys):
+    stub.valid_tokens = {"some-other-token"}
+    assert list_tools.main([]) == 1
+    assert "Inbound Auth" in capsys.readouterr().err
+
+
+def test_iam_failure_is_not_reported_as_a_gateway_problem(monkeypatch, capsys):
+    monkeypatch.setenv("GATEWAY_AUTH", "iam")
+    monkeypatch.setenv("GREENNODE_CLIENT_ID", "cid")
+    monkeypatch.setenv("GREENNODE_CLIENT_SECRET", "wrong")
+    monkeypatch.setattr(gateway_auth.httpx, "post", lambda url, **kw: httpx.Response(401, request=httpx.Request("POST", url)))
+    assert list_tools.main(["--url", "https://gw.example/stock"]) == 1
+    err = capsys.readouterr().err
+    assert "Configuration error: IAM token request failed" in err
+    assert "Inbound Auth" not in err
+
+
+@pytest.mark.parametrize(
+    "url,needle",
+    [("https://gw-<gateway>-<id>.example/stock", "not a valid http"), ("gw.example/stock", "not a valid http")],
+)
+def test_main_rejects_invalid_url_before_any_network_call(monkeypatch, capsys, url, needle):
+    monkeypatch.setenv("GATEWAY_AUTH", "none")
+    assert list_tools.main(["--url", url]) == 1
     assert needle in capsys.readouterr().err
 
 
-def test_main_config_error(monkeypatch, capsys):
-    async def boom(*a, **k):
-        raise list_tools.AuthConfigError("missing credential")
-
-    monkeypatch.setattr(list_tools, "run", boom)
-    assert list_tools.main(["--url", "https://gw/x"]) == 1
-    assert "missing credential" in capsys.readouterr().err
+def test_main_requires_credentials_before_any_network_call(monkeypatch, capsys):
+    assert list_tools.main(["--url", "https://gw.example/stock"]) == 1  # GATEWAY_AUTH defaults to iam
+    assert "GREENNODE_CLIENT_ID" in capsys.readouterr().err
 
 
-def test_mcp_session_terminated_maps_to_404():
-    from mcp.shared.exceptions import McpError
-    from mcp.types import ErrorData
-
-    err = McpError(ErrorData(code=32600, message="Session terminated"))
-    assert list_tools.find_http_status(ExceptionGroup("g", [err])) == 404
-
-
-def test_main_network_error(monkeypatch, capsys):
-    async def boom(*a, **k):
-        raise ExceptionGroup("g", [httpx.ConnectError("refused")])
-
-    monkeypatch.setattr(list_tools, "run", boom)
-    assert list_tools.main(["--url", "https://gw/x"]) == 1
-    assert "Private" in capsys.readouterr().err
+def test_main_reports_unreachable_gateway(monkeypatch, capsys):
+    monkeypatch.setenv("GATEWAY_AUTH", "none")
+    assert list_tools.main(["--url", "http://127.0.0.1:9/stock"]) == 1  # nothing listens on the discard port
+    assert "Network error" in capsys.readouterr().err
