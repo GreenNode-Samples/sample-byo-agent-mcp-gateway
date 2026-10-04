@@ -112,7 +112,7 @@ def build_llm(settings: Settings) -> ChatOpenAI:
         temperature=0,
         max_tokens=1024,
         timeout=60,
-        max_retries=2,
+        max_retries=0,  # retries are handled once, by ModelRetryMiddleware (see build_agent)
         stream_usage=True,  # token usage is reported at the end of a streamed answer
     )
 
@@ -224,7 +224,7 @@ async def run(settings: Settings, question: str | None, llm: BaseChatModel | Non
             return
         while True:
             try:
-                line = input("you> ").strip()
+                line = (await asyncio.to_thread(input, "you> ")).strip()  # keep the event loop (MCP sessions) running
             except EOFError:
                 print()
                 return

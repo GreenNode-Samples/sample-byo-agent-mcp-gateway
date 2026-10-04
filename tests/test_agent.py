@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import logging
+import threading
 
 import pytest
 
@@ -115,7 +116,7 @@ def test_invalid_log_level(monkeypatch):
 def test_llm_parameters():
     llm = agent.build_llm(agent.Settings(["https://a/x"], "key", "https://llm.example/v1", "some-model"))
     assert (llm.model_name, llm.temperature, llm.max_tokens) == ("some-model", 0, 1024)
-    assert (llm.request_timeout, llm.max_retries) == (60, 2)
+    assert (llm.request_timeout, llm.max_retries) == (60, 0)  # ModelRetryMiddleware is the only retry layer
 
 
 # --- connections ----------------------------------------------------------------------------------------
@@ -280,13 +281,20 @@ def test_stale_token_is_replaced_on_401(stub, monkeypatch):
 
 def test_chat_keeps_the_conversation(stub, monkeypatch, capsys):
     lines = iter(["first question", "", "second question", "exit"])
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
+    input_threads = []
+
+    def fake_input(prompt=""):
+        input_threads.append(threading.current_thread())
+        return next(lines)
+
+    monkeypatch.setattr("builtins.input", fake_input)
     llm = ScriptedChatModel(script=calls_then_answer([QUOTE], "answer"))
     run_agent(None, llm)
     humans = [m.content for m in llm.seen[-1] if isinstance(m, HumanMessage)]
     assert humans == ["first question", "second question"]  # same thread_id: history is kept, blank line is skipped
     assert capsys.readouterr().out.count("answer") == 2
     assert len(stub.tool_calls()) == 2
+    assert threading.main_thread() not in input_threads  # input() runs off the event loop thread
 
 
 def test_chat_ends_on_ctrl_d(stub, monkeypatch):
